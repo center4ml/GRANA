@@ -1,0 +1,11 @@
+pandas==2.1.1
+torch==2.1.0
+torchvision==0.16
+ultralytics==8.0.216
+scikit-image==0.22.0
+pytorch-lightning==2.1.2
+timm==0.9.11
+albumentations==1.4.10
+hydra-core==1.3.2
+gradio==4.44.0
+albucore==0.0.16

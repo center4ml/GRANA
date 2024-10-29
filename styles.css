@@ -1,0 +1,47 @@
+.header {
+    display: flex;
+    padding: 30px;
+    text-align: center;
+    justify-content: center;
+}
+
+#header-text {
+    font-size: 50px;
+    line-height: 50px;
+}
+
+#header-logo {
+    width: 50px;
+    height: 50px;
+    margin-right: 10px;
+    /*background-image: url("file=images/logo.svg");*/
+}
+
+.input-row {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.margin-bottom {
+    margin-bottom: 48px;
+}
+
+.results-header {
+    margin-top: 48px;
+    text-align: center;
+    font-size: 45px;
+    margin-bottom: 12px;
+}
+
+.processed-info {
+    display: flex;
+    padding: 30px;
+    text-align: center;
+    justify-content: center;
+    font-size: 26px;
+}
+
+.title {
+    margin-bottom: 8px!important;
+    font-size: 22px;
+}
