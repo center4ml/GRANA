@@ -10,7 +10,7 @@ software tool that recognizes grana on thylakoid network electron micrographs
 and generates a complex set of their structural parameters measurements.
 
 ## Website
-More information about GRANA, including **example dataset**, can be found at [GRANA website](https://www.chloroplast.pl/GRANA).
+More information about GRANA, including **example dataset**, can be found at [GRANA website](https://www.chloroplast.pl/grana).
 
 ## Demo
 Demo version of GRANA is available at [Hugging Face Spaces](https://huggingface.co/spaces/chloroplast/GRANA).
