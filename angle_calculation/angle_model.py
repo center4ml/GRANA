@@ -3,23 +3,25 @@ import torch
 import pytorch_lightning as pl
 import timm
 
-# from hydra.utils import instantiate
 from scipy.stats import circmean, circstd
 from scipy import ndimage
 from skimage.transform import resize
 
-from sampling import get_crop_batch
-from granum_utils import get_circle_mask
-import image_transforms
-from envelope_correction import calculate_best_angle_from_mask
-## loss
+from .sampling import get_crop_batch
+from .image_transforms import batched_radon
+from .envelope_correction import calculate_best_angle_from_mask
 
-class ConfidenceScaler:
-    def __init__(self, data: np.ndarray):
-        self.data = data
-        self.data.sort()
-    def __call__(self, x):
-        return np.searchsorted(self.data,x) / len(self.data)
+def get_circle_mask(shape, r=None):
+    if isinstance(shape, int):
+        shape = (shape, shape)
+    if r is None:
+        r = min(shape)/2
+    X, Y = np.meshgrid(np.arange(shape[1]), np.arange(shape[0]))
+    center_x = shape[1] / 2 - 0.5
+    center_y = shape[0] / 2 - 0.5
+
+    mask = ((X-center_x)**2 + (Y-center_y)**2) >= r**2
+    return mask
 
 class PatchedPredictor:
     def __init__(self,
@@ -97,7 +99,7 @@ class PatchedPredictor:
         )
         
     def _apply_radon(self, batch): # may reauire circle mask
-        crops_radon = image_transforms.batched_radon(batch.numpy())
+        crops_radon = batched_radon(batch.numpy())
         crops_radon = np.transpose(resize(np.transpose(crops_radon, (1, 2, 0)), self.radon_size), (2, 0, 1))
         return torch.tensor(crops_radon)
     
@@ -141,153 +143,6 @@ class AngleParser2d(torch.nn.Module):
         preds_x_proj = torch.sigmoid(batch[:,1]) - 0.5
         preds_direction = self.angle_range/360.*torch.rad2deg(torch.arctan2(preds_y_proj, preds_x_proj))
         return preds_direction
-
-class AngleRegularizer(torch.nn.Module):
-  def __init__(self, strength=1.0, scale=1.0, p=2):
-    super().__init__()
-    self.strength = strength
-    self.scale = scale
-    self.p = p
-  def forward(self, batch):
-    r = torch.linalg.norm(batch, dim=1)
-    return self.strength * torch.norm(r - self.scale, p=self.p)
-
-class AngleRegularizerLog(torch.nn.Module):
-  def __init__(self, strength=1.0, scale=1.0, p=2):
-    super().__init__()
-    self.strength = strength
-    self.scale = scale
-    self.p = p
-  def forward(self, batch):
-    r = torch.linalg.norm(batch, dim=1)
-    return self.strength * torch.norm(torch.log(r/self.scale), p=self.p)
-
-class StripsModel(pl.LightningModule):
-  def __init__(self, 
-              model_name = 'resnet18',
-               lr=0.001,
-               optimizer_hparams=dict(),
-               lr_hparams=dict(classname='MultiStepLR', kwargs=dict(milestones=[100, 150], gamma=0.1)),
-               loss_hparams=dict(rotation_weight=10., lumen_fraction_weight=50.),
-               angle_hparams=dict(angle_range=180.),
-               regularizer_hparams=None,
-               sigmoid_smoother=10.
-               ):
-    super().__init__()
-    # Exports the hyperparameters to a YAML file, and create "self.hparams" namespace
-    self.save_hyperparameters()
-    # Create model - implemented in non-abstract classes
-    self.model =  timm.create_model(model_name, in_chans=1, num_classes=4) #2 + self.hparams.angle_hparams['ndim'])
-    self.angle_parser = AngleParser2d(**self.hparams.angle_hparams)
-    self.regularizer = self._get_regularizer(self.hparams.regularizer_hparams)
-    self.losses = {
-        'direction': CosineLoss(2., True),
-        'period': torch.nn.functional.mse_loss,
-        'lumen_fraction': torch.nn.functional.mse_loss
-    }
-    self.losses_weights = {
-      'direction': self.hparams.loss_hparams['rotation_weight'],
-      'period': 1,
-      'lumen_fraction': self.hparams.loss_hparams['lumen_fraction_weight'],
-      'regularization': self.hparams.loss_hparams.get('regularization_weight', 0.)
-    }
-  
-  def _get_regularizer(self, regularizer_params):
-    if regularizer_params is None:
-      return None
-    else:
-      return instantiate(regularizer_params)
-    
-
-  def forward(self, x, return_raw=False):
-    """get predictions from image batch"""
-    preds = self.model(x) # preds: logit angle_sin, logit angle_cos, period, logit lumen fraction or logit angle, period, logit lumen fraction
-    preds_direction = self.angle_parser(preds)
-    preds_period = preds[:,-2]
-    preds_lumen_fraction = torch.sigmoid(preds[:,-1]*self.hparams.sigmoid_smoother) #lumen fraction is between 0 and 1, so we take sigmoid fo this
-
-    outputs = [preds_direction, preds_period, preds_lumen_fraction]
-    if return_raw:
-      outputs.append(preds)
-      
-    return tuple(outputs)
-
-  def configure_optimizers(self):
-    # AdamW is Adam with a correct implementation of weight decay (see here
-    # for details: https://arxiv.org/pdf/1711.05101.pdf)    
-    optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, **self.hparams.optimizer_hparams)
-    # scheduler = getattr(torch.optim.lr_scheduler, self.hparams.lr_hparams['classname'])(optimizer, **self.hparams.lr_hparams['kwargs'])
-    scheduler = instantiate({**self.hparams.lr_hparams, '_partial_': True})(optimizer)
-    return [optimizer], [scheduler]
-
-  def process_batch_supervised(self, batch):
-    """get predictions, losses and mean errors (MAE)"""
-
-    # get predictions
-    preds = {}
-    preds['direction'], preds['period'], preds['lumen_fraction'], preds_raw = self.forward(batch['image'], return_raw=True) # preds: angle, period, lumen fraction, raw preds
-
-    # calculate losses
-    losses = {
-        'direction': self.losses['direction'](2*batch['direction'], 2*preds['direction']),
-        'period': self.losses['period'](batch['period'], preds['period']),
-        'lumen_fraction': self.losses['lumen_fraction'](batch['lumen_fraction'], preds['lumen_fraction']),
-    }
-    if self.regularizer is not None:
-      losses['regularization'] = self.regularizer(preds_raw[:,:2])
-    
-    losses['final'] = \
-      losses['direction']*self.losses_weights['direction'] + \
-      losses['period']*self.losses_weights['period'] + \
-      losses['lumen_fraction']*self.losses_weights['lumen_fraction'] + \
-      losses.get('regularization', 0.)*self.losses_weights.get('regularization', 0.)
-
-    # calculate mean errors
-    period_difference = np.mean(abs(
-      batch['period'].detach().cpu().numpy() - \
-      preds['period'].detach().cpu().numpy()
-    ))
-
-    a1 = batch['direction'].detach().cpu().numpy()
-    a2 = preds['direction'].detach().cpu().numpy()
-    angle_difference = np.mean(0.5*np.degrees(np.arccos(np.cos(2*np.radians(a2-a1)))))
-
-    lumen_fraction_difference = np.mean(abs(preds['lumen_fraction'].detach().cpu().numpy()-batch['lumen_fraction'].detach().cpu().numpy()))
-
-    mae = {
-      'period': period_difference,
-      'direction': angle_difference,
-      'lumen_fraction': lumen_fraction_difference
-    }
-
-    return preds, losses, mae
-
-  def log_all(self, losses, mae, prefix=''):
-    self.log(f"{prefix}angle_loss", losses['direction'].item())
-    self.log(f"{prefix}period_loss", losses['period'].item())
-    self.log(f"{prefix}lumen_fraction_loss", losses['lumen_fraction'].item())
-    self.log(f"{prefix}period_difference", mae['period'])
-    self.log(f"{prefix}angle_difference", mae['direction'])
-    self.log(f"{prefix}lumen_fraction_difference", mae['lumen_fraction'])
-    self.log(f"{prefix}loss", losses['final'])
-    if 'regularization' in losses:
-      self.log(f"{prefix}regularization_loss", losses['regularization'].item())
-  
-  def training_step(self, batch, batch_idx):
-    # "batch" is the output of the training data loader.
-    preds, losses, mae = self.process_batch_supervised(batch)
-    self.log_all(losses, mae, prefix='train_')
-
-    return losses['final'] 
-  
-  def validation_step(self, batch, batch_idx):
-    preds, losses, mae = self.process_batch_supervised(batch)
-    self.log_all(losses, mae, prefix='val_')
-  
-  def test_step(self, batch, batch_idx):
-    preds, losses, mae = self.process_batch_supervised(batch)
-    self.log_all(losses, mae, prefix='test_')
-
     
 class StripsModelLumenWidth(pl.LightningModule):
   def __init__(self, 
@@ -414,31 +269,3 @@ class StripsModelLumenWidth(pl.LightningModule):
     preds, losses, mae = self.process_batch_supervised(batch)
     self.log_all(losses, mae, prefix='test_')
 
-       
-    
-# class StripsModel(StripsModelGeneral):
-#   def __init__(self, model_name, *args, **kwargs):
-#     super().__init__( *args, **kwargs)
-#     self.model = timm.create_model(model_name, in_chans=1, num_classes=4)
-#   def forward(self, x):
-#     """get predictions from image batch"""
-#     preds = self.model(x) # preds: logit angle_sin, logit angle_cos, period, logit lumen fraction
-#     preds_sin = 1. - 2*torch.sigmoid(preds[:,0])
-#     preds_cos = 1. - 2*torch.sigmoid(preds[:,1])
-#     preds_direction = 0.5*torch.rad2deg(torch.arctan2(preds_sin, preds_cos))
-#     preds_period = preds[:,2]
-#     preds_lumen_fraction = torch.sigmoid(preds[:,3]) #lumen fraction is between 0 and 1, so we take sigmoid fo this
-#     return preds_direction, preds_period, preds_lumen_fraction
-
-# class StripsModelAngle1(StripsModelGeneral):
-#   def __init__(self, model_name, *args, **kwargs):
-#     super().__init__( *args, **kwargs)
-#     self.model = timm.create_model(model_name, in_chans=1, num_classes=3)
-#   def forward(self, x):
-#     """get predictions from image batch"""
-#     preds = self.model(x) # preds: logit angle_sin, logit angle
-#     preds_direction = torch.pi * torch.sigmoid(preds[:,0])
-#     preds_period = preds[:,1]
-#     preds_lumen_fraction = torch.sigmoid(preds[:,2]) #lumen fraction is between 0 and 1, so we take sigmoid fo this
-#     return preds_direction, preds_period, preds_lumen_fraction       
-        

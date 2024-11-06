@@ -18,9 +18,9 @@ from PIL import Image
 from model import GranaAnalyser
 
 ga = GranaAnalyser(
-    "weights/yolo/20240604_yolov8_segm_ABRCR1_all_train4_best.pt",
-    "weights/AS_square_v16.ckpt",
-    "weights/period_measurer_weights-1.298_real_full-fa12970.ckpt",
+    "weights/detection_model.pt",
+    "weights/orientation_model.ckpt",
+    "weights/period_model.ckpt",
 )
 
 

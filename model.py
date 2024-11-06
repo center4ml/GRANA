@@ -1,8 +1,5 @@
-import itertools
-import warnings
 from io import BytesIO
 from copy import deepcopy
-from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Any, Union
 from dataclasses import dataclass, field
 
@@ -18,14 +15,10 @@ import torch
 import cv2
 import gradio
 
-import sys, os
-sys.path.append(os.path.abspath('angle_calculation'))
-# from classic import measure_object
-from sampling import get_crop_batch
-from angle_model import PatchedPredictor, StripsModelLumenWidth
+from angle_calculation.sampling import get_crop_batch
+from angle_calculation.angle_model import PatchedPredictor, StripsModelLumenWidth
 
 from period_calculation.period_measurer import PeriodMeasurer
-# from grana_detection.mmwrapper import MMDetector # mmdet installation in docker is problematic for now
 
 @dataclass
 class Granum:
@@ -60,10 +53,7 @@ class ScalerPadder:
         img_size_nm = longest_size / px_per_nm
         if img_size_nm > self.max_size_nm:
             error_message = f'too large image, image size: {img_size_nm:0.1f}nm, max allowed: {self.max_size_nm}nm'
-            # raise ValueError(error_message)
-            # warnings.warn(warning_message)
             gradio.Warning(error_message)
-            # add_text(image, warning_message, location=(0.1, 0.1), color='blue', size=int(40*longest_size/self.target_size))
         
         self.resize_factor = self.target_size / (max(self.min_size_nm, img_size_nm) * px_per_nm)
         self.px_per_nm_transformed = px_per_nm * self.resize_factor
@@ -599,14 +589,8 @@ class GranaAnalyser:
 class GranaDetector(GranaAnalyser):
     """supplementary class for grana detection only
     """
-    def __init__(self, weights_detector: str, detector_config: Optional[str] = None, model_type="yolo") -> None:
-
-        if model_type == "yolo":
-            self.detector = YOLO(weights_detector)
-        elif model_type == "mmdetection":
-            self.detector = MMDetector(model=detector_config, weights=weights_detector)
-        else:
-            raise NotImplementedError()
+    def __init__(self, weights_detector: str, detector_config: Optional[str] = None) -> None:
+        self.detector = YOLO(weights_detector)
         
     def predict_on_single(self, image: Image.Image, scale: float, detection_confidence: float=0.25, granum_id_start=1, use_scaling=True, granum_border_margin=1, granum_border_min_count=1, scaler_sizes=(1024, 640)) -> List[Granum]:
         # convert to grayscale
