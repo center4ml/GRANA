@@ -70,3 +70,8 @@ To run the project locally, ensure you have Python 3.9+ installed and follow the
     ```
 
 The Gradio interface should now be running locally and accessible at http://localhost:7860.
+
+### Examples
+
+Sample images for processing with the GRANA tool are stored in the `sample_images` directory. Each image has a scale of 1.298 pixels/nm, as indicated in the file names.
+
