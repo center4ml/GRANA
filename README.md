@@ -9,6 +9,8 @@ is an an AI-enhanced, user-friendly
 software tool that recognizes grana on thylakoid network electron micrographs 
 and generates a complex set of their structural parameters measurements.
 
+It is described in the article: ["GRANA: An AI-based tool for accelerating chloroplast grana nanomorphology analysis using hybrid intelligence"](https://doi.org/10.1093/plphys/kiaf212)
+
 ## Website
 More information about GRANA, including **example dataset**, can be found at [GRANA website](https://www.chloroplast.pl/grana).
 
@@ -74,4 +76,21 @@ The Gradio interface should now be running locally and accessible at http://loca
 ### Examples
 
 Sample images for processing with the GRANA tool are stored in the `sample_images` directory. Each image has a scale of 1.298 pixels/nm, as indicated in the file names.
+
+## Citation
+
+Article: ["GRANA: An AI-based tool for accelerating chloroplast grana nanomorphology analysis using hybrid intelligence"](https://doi.org/10.1093/plphys/kiaf212)
+
+```
+@article{bukat2025grana,
+  title={GRANA: An AI--based tool for accelerating chloroplast grana nanomorphology analysis using hybrid intelligence},
+  author={Bukat, Alicja and Bukowicki, Marek and Bykowski, Micha{\l} and Kuczkowska, Karolina and Nowakowski, Szymon and {\'S}liwi{\'n}ska, Anna and Kowalewska, {\L}ucja},
+  journal={Plant Physiology},
+  volume={198},
+  number={2},
+  pages={kiaf212},
+  year={2025},
+  publisher={Oxford University Press US}
+}
+```
 
